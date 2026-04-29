@@ -1,0 +1,119 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A flower or plant product available for sale.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Display name of the product" },
+        "description": { "type": "string", "description": "Detailed description" },
+        "price": { "type": "number", "description": "Price in BRL" },
+        "imageUrl": { "type": "string", "description": "URL of the product image" },
+        "active": { "type": "boolean", "description": "Whether the product is visible to customers" },
+        "slug": { "type": "string", "description": "URL-friendly identifier" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "price", "imageUrl", "active", "slug"]
+    },
+    "Banner": {
+      "title": "Banner",
+      "description": "A promotional banner for the homepage carrousel.",
+      "type": "object",
+      "properties": {
+        "imageUrl": { "type": "string", "description": "URL of the banner image" },
+        "link": { "type": "string", "description": "Optional destination link" },
+        "order": { "type": "integer", "description": "Display priority" },
+        "startDate": { "type": "string", "format": "date-time" },
+        "endDate": { "type": "string", "format": "date-time" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["imageUrl", "order", "active"]
+    },
+    "Settings": {
+      "title": "Global Settings",
+      "description": "General configurations for the store.",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "faviconUrl": { "type": "string" },
+        "primaryColor": { "type": "string" },
+        "secondaryColor": { "type": "string" },
+        "address": { "type": "string" },
+        "googleMapsEmbed": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "status": { "type": "string", "enum": ["online", "maintenance"] },
+        "maintenanceMessage": { "type": "string" }
+      },
+      "required": ["companyName", "whatsappNumber"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Records all operations performed in the system.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "operationType": { "type": "string", "enum": ["create", "update", "delete"] },
+        "entityName": { "type": "string" },
+        "oldData": { "type": "object" },
+        "newData": { "type": "object" }
+      }
+    },
+    "User": {
+      "title": "Admin User",
+      "description": "System administrator user profile.",
+      "type": "object",
+      "properties": {
+        "login": { "type": "string" },
+        "name": { "type": "string" },
+        "companyName": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "maxSessions": { "type": "integer" },
+        "sessionPolicy": { "type": "string", "enum": ["kill_old", "block_new"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Review": {
+      "title": "Product Review",
+      "description": "Customer feedback on a product.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "rating": { "type": "integer" },
+        "comment": { "type": "string" },
+        "approved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "customerName", "rating", "comment", "approved"]
+    },
+    "Order": {
+      "title": "Customer Order",
+      "description": "Purchase order from a customer.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "total": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "processing", "shipped", "delivered", "cancelled"] },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerName", "customerPhone", "customerAddress", "total", "status", "items"]
+    }
+  },
+  "firestore": {
+    "products": { "schema": "Product", "description": "Catalogue of flowers and plants" },
+    "banners": { "schema": "Banner", "description": "Home carrousel items" },
+    "settings": { "schema": "Settings", "description": "Global store configuration (id: main)" },
+    "auditLogs": { "schema": "AuditLog", "description": "System operation logs" },
+    "users": { "schema": "User", "description": "Admin users list" },
+    "reviews": { "schema": "Review", "description": "Customer product reviews" },
+    "orders": { "schema": "Order", "description": "Customer purchase orders" }
+  }
+}
