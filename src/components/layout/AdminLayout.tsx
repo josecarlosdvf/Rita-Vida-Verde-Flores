@@ -10,17 +10,18 @@ import {
   History,
   Menu,
   X,
-  ExternalLink,
   ShoppingBag,
   Star
 } from 'lucide-react';
-import { auth, db } from '../../lib/firebase';
-import { signOut } from 'firebase/auth';
 import { cn } from '../../lib/utils';
-import { doc, getDoc } from 'firebase/firestore';
+import { localAuth } from '../../lib/localAuth';
 import { UserProfile } from '../../types';
 
-export default function AdminLayout() {
+interface AdminLayoutProps {
+  onLogout: () => void;
+}
+
+export default function AdminLayout({ onLogout }: AdminLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const location = useLocation();
@@ -28,13 +29,17 @@ export default function AdminLayout() {
 
   useEffect(() => {
     async function fetchProfile() {
-      if (auth.currentUser) {
-        const docRef = doc(db, 'users', auth.currentUser.uid);
-        const snapshot = await getDoc(docRef);
-        if (snapshot.exists()) {
-          setProfile({ uid: snapshot.id, ...snapshot.data() } as UserProfile);
+      try {
+        const token = localAuth.getToken();
+        if (!token) return;
+        const res = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setProfile(data as UserProfile);
         }
-      }
+      } catch { /* silent */ }
     }
     fetchProfile();
   }, []);
@@ -50,8 +55,9 @@ export default function AdminLayout() {
     { name: 'Configurações', icon: <SettingsIcon size={20} />, path: '/admin/configuracoes' },
   ];
 
-  const handleLogout = async () => {
-    await signOut(auth);
+  const handleLogout = () => {
+    localAuth.clearSession();
+    onLogout();
     navigate('/admin/login');
   };
 
@@ -111,7 +117,7 @@ export default function AdminLayout() {
           <div className="flex items-center gap-4">
             <div className="hidden sm:flex flex-col items-end mr-2">
               <p className="text-xs font-bold text-gray-900">{profile?.name || 'Administrador'}</p>
-              <p className="text-[10px] text-gray-400 font-medium">{auth.currentUser?.email}</p>
+              <p className="text-[10px] text-gray-400 font-medium">{profile?.email || localAuth.getUser()?.email}</p>
             </div>
             <button 
               onClick={handleLogout}

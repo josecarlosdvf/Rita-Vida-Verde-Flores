@@ -1,22 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { useCart } from '../hooks/useCart';
 import { formatPrice, cn } from '../lib/utils';
-import { ShoppingBag, Trash2, Plus, Minus, ArrowRight, Loader2, CheckCircle2, Phone } from 'lucide-react';
+import { ShoppingBag, Trash2, Plus, Minus, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { storeService } from '../lib/storeService';
 import { Settings, OrderStatus } from '../types';
 
+interface ViaCepResult {
+  cep?: string;
+  logradouro?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+  erro?: boolean;
+}
+
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+function formatCep(value: string) {
+  const digits = onlyDigits(value).slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
 export default function Checkout() {
-  const { cart, totalItems, totalPrice, updateQuantity, removeFromCart, clearCart } = useCart();
+  const { cart, totalItems, totalPrice, updateQuantity, updateObservation, removeFromCart, clearCart } = useCart();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingCep, setLoadingCep] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [cepError, setCepError] = useState('');
+  const [resolvedAddress, setResolvedAddress] = useState<ViaCepResult | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    phone: '',
-    address: ''
+    cep: '',
+    number: '',
+    complement: ''
   });
 
   useEffect(() => {
@@ -28,37 +49,89 @@ export default function Checkout() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    if (name === 'cep') {
+      setFormData(prev => ({ ...prev, cep: formatCep(value) }));
+      setCepError('');
+      setResolvedAddress(null);
+      return;
+    }
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const resolveCep = async (): Promise<ViaCepResult | null> => {
+    const cep = onlyDigits(formData.cep);
+    if (cep.length !== 8) {
+      setCepError('CEP inválido. Informe 8 dígitos.');
+      setResolvedAddress(null);
+      return null;
+    }
+
+    setLoadingCep(true);
+    setCepError('');
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const data = await res.json();
+      if (!res.ok || data.erro) {
+        setCepError('CEP não encontrado no ViaCEP.');
+        setResolvedAddress(null);
+        return null;
+      }
+      setResolvedAddress(data as ViaCepResult);
+      return data as ViaCepResult;
+    } catch {
+      setCepError('Não foi possível validar o CEP agora. Tente novamente.');
+      setResolvedAddress(null);
+      return null;
+    } finally {
+      setLoadingCep(false);
+    }
+  };
+
+  const buildAddressText = (address: ViaCepResult) => {
+    const base = `${address.logradouro || ''}, ${formData.number || 's/n'} - ${address.bairro || ''}, ${address.localidade || ''}/${address.uf || ''}, CEP ${formData.cep}`;
+    return formData.complement?.trim() ? `${base} (Compl.: ${formData.complement.trim()})` : base;
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cart.length === 0) return;
 
+    const addressData = resolvedAddress ?? await resolveCep();
+    if (!addressData) return;
+
+    const addressText = buildAddressText(addressData);
+
     setLoading(true);
     try {
       const orderData = {
         customerName: formData.name,
-        customerPhone: formData.phone,
-        customerAddress: formData.address,
+        customerPhone: '',
+        customerAddress: addressText,
         items: cart.map(item => ({
           productId: item.id,
           productName: item.name,
           price: item.price,
           quantity: item.quantity,
-          imageUrl: item.imageUrl
+          imageUrl: item.imageUrl,
+          observation: item.observation?.trim() || undefined,
         })),
         total: totalPrice,
         status: OrderStatus.PENDING,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
       };
 
-      const docRef = await addDoc(collection(db, 'orders'), orderData);
+      const newOrder = await storeService.create('orders', orderData);
+      const orderId = typeof newOrder === 'string' ? newOrder : (newOrder as any)?.id || 'NOVO';
       
-      // WhatsApp notification
-      const itemsList = cart.map(item => `- ${item.quantity}x ${item.name} (${formatPrice(item.price)})`).join('\n');
-      const message = `🛍️ *Novo Pedido Recebido!*\n\n*Pedido:* #${docRef.id.slice(-6).toUpperCase()}\n\n*Cliente:* ${formData.name}\n*Telefone:* ${formData.phone}\n*Endereço:* ${formData.address}\n\n*Itens:*\n${itemsList}\n\n*Total:* ${formatPrice(totalPrice)}\n\nGerenciar pedido aqui: ${window.location.origin}/admin/pedidos`;
+      const itemsList = cart
+        .map(item => `- ${item.quantity}x ${item.name} (${formatPrice(item.price)})${item.observation?.trim() ? `\n  Obs: ${item.observation.trim()}` : ''}`)
+        .join('\n');
+
+      const includeAdminLink = settings?.includeOrderLinkInWhatsapp ?? true;
+      const managementLine = includeAdminLink
+        ? `\n\nAcompanhar no painel: ${window.location.origin}/admin/pedidos`
+        : '';
+
+      const message = `Olá! Me chamo ${formData.name} e gostaria de fazer este pedido 😊\n\nItens escolhidos:\n${itemsList}\n\nEntrega para:\n${addressText}\n\nTotal estimado: ${formatPrice(totalPrice)}\nRef. pedido: #${String(orderId).slice(-6).toUpperCase()}${managementLine}`;
       
       const whatsappUrl = `https://wa.me/${settings?.whatsappNumber.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
       
@@ -140,6 +213,17 @@ export default function Checkout() {
                         <Trash2 size={20} />
                       </button>
                     </div>
+
+                    <div className="mt-5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1 mb-2 block">Observações do item</label>
+                      <textarea
+                        rows={2}
+                        value={item.observation || ''}
+                        onChange={(e) => updateObservation(item.id, e.target.value)}
+                        placeholder="Ex: sem laço, cartão com mensagem curta, embalar para presente..."
+                        className="w-full max-w-xl px-5 py-3 bg-gray-50 border border-transparent rounded-3xl focus:bg-white focus:border-primary/20 outline-none transition-all text-sm font-medium resize-none"
+                      />
+                    </div>
                   </div>
                   
                   <div className="text-right hidden sm:block">
@@ -184,29 +268,52 @@ export default function Checkout() {
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4 mb-2 block">WhatsApp</label>
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4 mb-2 block">CEP</label>
                       <input 
                         required
-                        type="tel" 
-                        name="phone"
-                        value={formData.phone}
+                        type="text" 
+                        name="cep"
+                        value={formData.cep}
+                        onChange={handleInputChange}
+                        onBlur={resolveCep}
+                        className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-full focus:bg-white focus:border-primary/20 outline-none transition-all text-sm font-medium"
+                        placeholder="00000-000"
+                      />
+                      {loadingCep && <p className="text-[10px] text-gray-400 mt-2 ml-4 uppercase tracking-widest font-bold">Validando CEP...</p>}
+                      {cepError && <p className="text-xs text-red-500 mt-2 ml-4">{cepError}</p>}
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4 mb-2 block">Número</label>
+                      <input
+                        required
+                        type="text"
+                        name="number"
+                        value={formData.number}
                         onChange={handleInputChange}
                         className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-full focus:bg-white focus:border-primary/20 outline-none transition-all text-sm font-medium"
-                        placeholder="(11) 99999-9999"
+                        placeholder="Ex: 123"
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4 mb-2 block">Endereço de Entrega</label>
-                      <textarea 
-                        required
-                        name="address"
-                        value={formData.address}
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4 mb-2 block">Complemento (opcional)</label>
+                      <input
+                        type="text"
+                        name="complement"
+                        value={formData.complement}
                         onChange={handleInputChange}
-                        rows={3}
-                        className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-3xl focus:bg-white focus:border-primary/20 outline-none transition-all text-sm font-medium"
-                        placeholder="Rua, número, bairro, cidade..."
-                      ></textarea>
+                        className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-full focus:bg-white focus:border-primary/20 outline-none transition-all text-sm font-medium"
+                        placeholder="Apartamento, bloco, ponto de referência..."
+                      />
                     </div>
+
+                    {resolvedAddress && (
+                      <div className="p-4 bg-green-50 border border-green-100 rounded-2xl">
+                        <p className="text-[10px] font-bold text-green-700 uppercase tracking-widest mb-2">Endereço encontrado</p>
+                        <p className="text-sm text-green-800">
+                          {resolvedAddress.logradouro}, {resolvedAddress.bairro}, {resolvedAddress.localidade}/{resolvedAddress.uf}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <button 

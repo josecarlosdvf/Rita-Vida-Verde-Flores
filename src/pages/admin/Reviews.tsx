@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, writeBatch, where, getDocs } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-import { Review, Product } from '../../types';
+import { storeService } from '../../lib/storeService';
+import { Review } from '../../types';
 import { Star, CheckCircle, XCircle, Trash2, Search, MessageSquare, Loader2, ArrowUpRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import DataTable from '../../components/DataTable';
@@ -12,9 +11,12 @@ export default function AdminReviews() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setReviews(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Review)));
+    const unsubscribe = storeService.subscribe<Review>('reviews', (data) => {
+      setReviews(data.sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+        return tb - ta;
+      }));
       setLoading(false);
     });
     return unsubscribe;
@@ -23,9 +25,9 @@ export default function AdminReviews() {
   const toggleApproval = async (review: Review) => {
     try {
       const newStatus = !review.approved;
-      await updateDoc(doc(db, 'reviews', review.id), { approved: newStatus });
-      
-      // Re-calculate product specific rating summary
+      await storeService.update('reviews', review.id, { approved: newStatus });
+      // Optimistic local update
+      setReviews(prev => prev.map(r => r.id === review.id ? { ...r, approved: newStatus } : r));
       await recalculateProductRating(review.productId);
     } catch (error) {
       console.error(error);
@@ -36,7 +38,8 @@ export default function AdminReviews() {
   const deleteReview = async (review: Review) => {
     if (!window.confirm('Excluir esta avaliação Permanentemente?')) return;
     try {
-      await deleteDoc(doc(db, 'reviews', review.id));
+      await storeService.delete('reviews', review.id);
+      setReviews(prev => prev.filter(r => r.id !== review.id));
       await recalculateProductRating(review.productId);
     } catch (error) {
       console.error(error);
@@ -45,21 +48,10 @@ export default function AdminReviews() {
   };
 
   const recalculateProductRating = async (productId: string) => {
-    const q = query(collection(db, 'reviews'), where('productId', '==', productId), where('approved', '==', true));
-    const snapshot = await getDocs(q);
-    const reviewsData = snapshot.docs.map(d => d.data() as Review);
-    
-    let avg = 0;
-    if (reviewsData.length > 0) {
-      const sum = reviewsData.reduce((acc, r) => acc + r.rating, 0);
-      avg = sum / reviewsData.length;
-    }
-
-    const productRef = doc(db, 'products', productId);
-    await updateDoc(productRef, {
-      rating: avg,
-      reviewsCount: reviewsData.length
-    });
+    const allReviews = await storeService.list<Review>('reviews');
+    const approved = allReviews.filter(r => r.productId === productId && r.approved);
+    const avg = approved.length > 0 ? approved.reduce((acc, r) => acc + r.rating, 0) / approved.length : 0;
+    await storeService.update('products', productId, { rating: avg, reviewsCount: approved.length });
   };
 
   const columns = [
@@ -100,7 +92,7 @@ export default function AdminReviews() {
     {
       header: 'Data',
       accessorKey: 'createdAt' as const,
-      cell: (v: any) => v?.toDate ? v.toDate().toLocaleDateString('pt-BR') : '---'
+      cell: (v: any) => v ? new Date(v).toLocaleDateString('pt-BR') : '---'
     },
     {
       header: 'Ações',

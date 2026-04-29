@@ -4,8 +4,6 @@ import { Phone, ChevronLeft, Calendar, ShieldCheck, Heart, Share2, Star, Send, L
 import { storeService } from '../lib/storeService';
 import { Product, Settings, Review } from '../types';
 import { formatPrice, cn } from '../lib/utils';
-import { query, collection, where, getDocs, addDoc, serverTimestamp, average, AggregateField } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useCart } from '../hooks/useCart';
 
 export default function ProductDetails() {
@@ -25,10 +23,9 @@ export default function ProductDetails() {
   useEffect(() => {
     async function fetchProduct() {
       try {
-        const q = query(collection(db, 'products'), where('slug', '==', slug), where('active', '==', true));
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          const productData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Product;
+        const products = await storeService.list<Product>('products');
+        const productData = products.find(p => p.slug === slug && p.active);
+        if (productData) {
           setProduct(productData);
           fetchReviews(productData.id);
         }
@@ -40,13 +37,8 @@ export default function ProductDetails() {
     }
 
     async function fetchReviews(productId: string) {
-      const q = query(
-        collection(db, 'reviews'), 
-        where('productId', '==', productId),
-        where('approved', '==', true)
-      );
-      const snapshot = await getDocs(q);
-      const reviewsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Review));
+      const allReviews = await storeService.list<Review>('reviews');
+      const reviewsData = allReviews.filter(r => r.productId === productId && r.approved);
       setReviews(reviewsData);
 
       if (reviewsData.length > 0) {
@@ -77,10 +69,9 @@ export default function ProductDetails() {
         rating,
         comment,
         approved: false,
-        createdAt: serverTimestamp()
       };
 
-      await addDoc(collection(db, 'reviews'), reviewData);
+      await storeService.create('reviews', reviewData);
       
       // Notify admin via WhatsApp (Open link)
       const message = `🌸 *Nova Avaliação Recebida!*\n\n*Produto:* ${product.name}\n*Cliente:* ${customerName}\n*Nota:* ${rating} ⭐\n*Comentário:* ${comment}\n\nModerar aqui: ${window.location.origin}/admin/avaliacoes`;
@@ -114,7 +105,7 @@ export default function ProductDetails() {
   );
 
   const whatsappUrl = `https://wa.me/${settings?.whatsappNumber?.replace(/\D/g, '')}?text=${encodeURIComponent(
-    `Olá, tenho interesse no produto: ${product.name}\nPreço: ${formatPrice(product.price)}\nImagem: ${product.imageUrl}`
+    `Olá, tenho interesse no produto: ${product.name}\nPreço: ${formatPrice(product.price)}`
   )}`;
 
   return (
@@ -139,6 +130,20 @@ export default function ProductDetails() {
                 className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105"
               />
             </div>
+            {(product.discountPercent || product.discountPrice) && (() => {
+              const pct = product.discountPercent
+                ? product.discountPercent
+                : product.discountPrice && product.price > product.discountPrice
+                  ? Math.round((1 - product.discountPrice / product.price) * 100)
+                  : null;
+              return pct ? (
+                <div className="absolute top-0 right-0 overflow-hidden w-36 h-36 pointer-events-none z-20">
+                  <div className="absolute top-7 right-[-32px] w-[168px] bg-gradient-to-r from-red-500 to-orange-500 text-white text-center text-xs font-black uppercase tracking-wide shadow-xl rotate-45 py-2">
+                    -{pct}% OFF
+                  </div>
+                </div>
+              ) : null;
+            })()}
             <div className="absolute top-6 right-6 flex flex-col gap-3">
               <button className="p-3 bg-white/90 backdrop-blur-md rounded-full text-accent hover:bg-white shadow-xl transition-all hover:scale-110 active:scale-95">
                 <Heart size={20} />
@@ -169,9 +174,22 @@ export default function ProductDetails() {
                 {product.name}
               </h1>
               
-              <p className="text-4xl font-serif italic text-primary mb-10">
-                {formatPrice(product.price)}
-              </p>
+              {(product.discountPercent || product.discountPrice) ? (() => {
+                const finalPrice = product.discountPercent
+                  ? product.price * (1 - product.discountPercent / 100)
+                  : product.discountPrice!;
+                const pct = product.discountPercent
+                  ?? Math.round((1 - product.discountPrice! / product.price) * 100);
+                return (
+                  <div className="flex flex-wrap items-baseline gap-4 mb-10">
+                    <span className="text-4xl font-serif italic text-red-600">{formatPrice(finalPrice)}</span>
+                    <span className="line-through text-2xl text-gray-400 font-serif">{formatPrice(product.price)}</span>
+                    <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-black">-{pct}% OFF</span>
+                  </div>
+                );
+              })() : (
+                <p className="text-4xl font-serif italic text-primary mb-10">{formatPrice(product.price)}</p>
+              )}
               
               <div className="prose prose-stone text-gray-600 text-lg leading-relaxed mb-12 max-w-none font-serif italic">
                 {product.description}

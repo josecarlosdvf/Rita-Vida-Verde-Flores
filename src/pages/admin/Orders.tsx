@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { storeService } from '../../lib/storeService';
 import { Order, OrderStatus } from '../../types';
 import { formatPrice, cn } from '../../lib/utils';
 import { ShoppingBag, Eye, Trash2, CheckCircle, Clock, Truck, XCircle, Search, Phone } from 'lucide-react';
@@ -13,9 +12,12 @@ export default function AdminOrders() {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
+    const unsubscribe = storeService.subscribe<Order>('orders', (data) => {
+      setOrders(data.sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt as any).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt as any).getTime() : 0;
+        return tb - ta;
+      }));
       setLoading(false);
     });
     return unsubscribe;
@@ -23,10 +25,7 @@ export default function AdminOrders() {
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {
     try {
-      await updateDoc(doc(db, 'orders', orderId), { 
-        status,
-        updatedAt: new Date()
-      });
+      await storeService.update('orders', orderId, { status });
       if (selectedOrder?.id === orderId) {
         setSelectedOrder(prev => prev ? { ...prev, status } : null);
       }
@@ -39,7 +38,7 @@ export default function AdminOrders() {
   const deleteOrder = async (orderId: string) => {
     if (!window.confirm('Tem certeza que deseja excluir este pedido?')) return;
     try {
-      await deleteDoc(doc(db, 'orders', orderId));
+      await storeService.delete('orders', orderId);
       setSelectedOrder(null);
     } catch (error) {
       console.error(error);
@@ -114,6 +113,7 @@ export default function AdminOrders() {
             columns={columns} 
             data={filteredOrders} 
             isLoading={loading}
+            onRowClick={(item) => setSelectedOrder(item)}
           />
         </div>
 
@@ -186,6 +186,9 @@ export default function AdminOrders() {
                         <div className="flex-grow">
                           <p className="text-xs font-bold text-primary-dark">{item.productName}</p>
                           <p className="text-[10px] text-gray-400 font-medium">{item.quantity}x {formatPrice(item.price)}</p>
+                          {item.observation && (
+                            <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">Obs: {item.observation}</p>
+                          )}
                         </div>
                         <p className="text-xs font-bold text-primary-dark">{formatPrice(item.price * item.quantity)}</p>
                       </div>

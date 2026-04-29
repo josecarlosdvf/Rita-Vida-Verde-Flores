@@ -1,12 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { onAuthStateChanged } from 'firebase/auth';
 import { useEffect, useState } from 'react';
-import { auth } from './lib/firebase';
+import { localAuth } from './lib/localAuth';
 import { CartProvider } from './hooks/useCart';
 import Home from './pages/Home';
 import Catalog from './pages/Catalog';
 import ProductDetails from './pages/ProductDetails';
 import Checkout from './pages/Checkout';
+import CustomerAuth from './pages/CustomerAuth';
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminLogin from './pages/admin/Login';
 import Products from './pages/admin/Products';
@@ -18,20 +18,24 @@ import AdminOrders from './pages/admin/Orders';
 import AdminReviews from './pages/admin/Reviews';
 import AdminLayout from './components/layout/AdminLayout';
 import PublicLayout from './components/layout/PublicLayout';
+import ScrollToTop from './components/ScrollToTop';
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
-    });
-    return unsubscribe;
+    setAuthenticated(localAuth.isAuthenticated());
+
+    const onStorage = () => setAuthenticated(localAuth.isAuthenticated());
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('auth-change', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('auth-change', onStorage);
+    };
   }, []);
 
-  if (loading) {
+  if (authenticated === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fcf9f7]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -42,6 +46,7 @@ export default function App() {
   return (
     <CartProvider>
       <BrowserRouter>
+        <ScrollToTop />
         <Routes>
           {/* Public Routes */}
           <Route element={<PublicLayout />}>
@@ -49,11 +54,12 @@ export default function App() {
             <Route path="/catalogo" element={<Catalog />} />
             <Route path="/produto/:slug" element={<ProductDetails />} />
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/conta" element={<CustomerAuth />} />
           </Route>
 
           {/* Admin Routes */}
-          <Route path="/admin/login" element={user ? <Navigate to="/admin" /> : <AdminLogin />} />
-          <Route path="/admin" element={user ? <AdminLayout /> : <Navigate to="/admin/login" />}>
+          <Route path="/admin/login" element={authenticated ? <Navigate to="/admin" /> : <AdminLogin onLogin={() => setAuthenticated(true)} />} />
+          <Route path="/admin" element={authenticated ? <AdminLayout onLogout={() => setAuthenticated(false)} /> : <Navigate to="/admin/login" />}>
             <Route index element={<AdminDashboard />} />
             <Route path="produtos" element={<Products />} />
             <Route path="banners" element={<Banners />} />

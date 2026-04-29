@@ -14,8 +14,6 @@ import {
 import { storeService } from '../../lib/storeService';
 import { Settings, SystemStatus } from '../../types';
 import { cn } from '../../lib/utils';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 import { useDropzone } from 'react-dropzone';
 
 export default function AdminSettings() {
@@ -24,6 +22,7 @@ export default function AdminSettings() {
   const [formData, setFormData] = useState<Settings>({
     companyName: '',
     whatsappNumber: '',
+    includeOrderLinkInWhatsapp: true,
     address: '',
     googleMapsEmbed: '',
     primaryColor: '#ec4899',
@@ -34,10 +33,12 @@ export default function AdminSettings() {
 
   useEffect(() => {
     async function fetchSettings() {
-      const docRef = doc(db, 'settings', 'main');
-      const snapshot = await getDoc(docRef);
-      if (snapshot.exists()) {
-        setFormData(snapshot.data() as Settings);
+      const data = await storeService.get<Settings>('settings', 'main');
+      if (data) {
+        setFormData({
+          ...data,
+          includeOrderLinkInWhatsapp: data.includeOrderLinkInWhatsapp ?? true,
+        } as Settings);
       }
     }
     fetchSettings();
@@ -48,7 +49,7 @@ export default function AdminSettings() {
     setLoading(true);
     setSuccess(false);
     try {
-      await setDoc(doc(db, 'settings', 'main'), formData);
+      await storeService.update('settings', 'main', formData);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (error) {
@@ -188,6 +189,22 @@ export default function AdminSettings() {
                   placeholder="11987654321"
                 />
               </div>
+            </div>
+
+            <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl">
+              <div
+                onClick={() => setFormData({ ...formData, includeOrderLinkInWhatsapp: !formData.includeOrderLinkInWhatsapp })}
+                className={cn(
+                  'w-12 h-6 rounded-full relative cursor-pointer transition-colors',
+                  formData.includeOrderLinkInWhatsapp ? 'bg-green-500' : 'bg-gray-300'
+                )}
+              >
+                <div className={cn(
+                  'absolute top-1 w-4 h-4 bg-white rounded-full transition-all shadow-sm',
+                  formData.includeOrderLinkInWhatsapp ? 'left-7' : 'left-1'
+                )} />
+              </div>
+              <span className="text-sm font-bold text-gray-700">Incluir link de gestão do pedido na mensagem de WhatsApp</span>
             </div>
 
             <div className="space-y-2">

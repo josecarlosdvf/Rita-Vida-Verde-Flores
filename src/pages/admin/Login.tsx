@@ -1,30 +1,37 @@
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth, db } from '../../lib/firebase';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { Flower2, Lock, Mail, AlertCircle, Loader2 } from 'lucide-react';
-import { UserStatus, SessionPolicy } from '../../types';
+import { Flower2, Lock, Mail, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { localAuth } from '../../lib/localAuth';
 
-export default function AdminLogin() {
-  const [email, setEmail] = useState('');
+interface AdminLoginProps {
+  onLogin: () => void;
+}
+
+export default function AdminLogin({ onLogin }: AdminLoginProps) {
+  const [email, setEmail] = useState('admin@floricultura.com');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (err: any) {
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('O login por E-mail/Senha não está ativado no Firebase Console. Por favor, ative-o em Authentication > Sign-in method.');
-      } else {
-        setError('Credenciais inválidas ou erro de conexão.');
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Credenciais inválidas.');
+        return;
       }
-      console.error(err);
+      localAuth.setSession(data.token, data.user);
+      onLogin();
+    } catch {
+      setError('Erro de conexão com o servidor.');
     } finally {
       setLoading(false);
     }
@@ -33,128 +40,110 @@ export default function AdminLogin() {
   const handleBootstrap = async () => {
     setLoading(true);
     setError('');
-    const defaultEmail = 'admin@floricultura.com';
-    const defaultPass = 'admin123';
-
+    setSuccessMsg('');
     try {
-      let userCredential;
-      try {
-        userCredential = await createUserWithEmailAndPassword(auth, defaultEmail, defaultPass);
-      } catch (e: any) {
-        if (e.code === 'auth/email-already-in-use') {
-          userCredential = await signInWithEmailAndPassword(auth, defaultEmail, defaultPass);
-        } else if (e.code === 'auth/operation-not-allowed') {
-          throw new Error('O login por E-mail/Senha não está ativado no Firebase Console.');
-        } else throw e;
+      const res = await fetch('/api/auth/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'admin@floricultura.com', password: 'admin123' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Erro ao configurar o sistema.');
+        return;
       }
-
-      const user = userCredential.user;
-      const userRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userRef);
-
-      if (!userDoc.exists()) {
-        await setDoc(userRef, {
-          uid: user.uid,
-          login: 'admin',
-          name: 'Administrador',
-          companyName: 'Floresça Boutique',
-          status: UserStatus.ACTIVE,
-          maxSessions: 5,
-          sessionPolicy: SessionPolicy.KILL_OLD,
-          createdAt: serverTimestamp()
-        });
+      if (data.alreadyDone) {
+        setSuccessMsg('Sistema já configurado. Use admin@floricultura.com / admin123');
+        return;
       }
-      
-      const settingsRef = doc(db, 'settings', 'main');
-      const settingsDoc = await getDoc(settingsRef);
-      if (!settingsDoc.exists()) {
-        await setDoc(settingsRef, {
-          companyName: 'Floresça Boutique',
-          whatsappNumber: '11987654321',
-          status: 'online',
-          address: 'Av. das Flores, 1234 - Jardim Botânico, São Paulo, SP',
-          primaryColor: '#8B5E3C',
-          secondaryColor: '#D4A373'
-        });
-      }
-
-    } catch (err: any) {
-      setError('Erro: ' + err.message);
+      // Bootstrap retorna token — faz login automático
+      localAuth.setSession(data.token, data.user);
+      setSuccessMsg(data.message);
+      setTimeout(() => onLogin(), 1200);
+    } catch {
+      setError('Erro de conexão com o servidor.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#fcf9f7] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#f0f5ee] via-[#fcf9f7] to-[#f5f0eb] flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white rounded-[40px] shadow-2xl p-12 relative overflow-hidden border border-gray-100">
-        <div className="absolute top-0 left-0 right-0 h-2 bg-primary" />
-        
-        <div className="text-center mb-12">
-          <div className="inline-flex p-5 bg-[#fcf9f7] rounded-full text-primary mb-6 shadow-sm border border-gray-50">
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-primary via-[#7aad6a] to-accent" />
+
+        <div className="text-center mb-10">
+          <div className="inline-flex p-5 bg-[#f0f5ee] rounded-full text-primary mb-6 shadow-sm border border-green-50">
             <Flower2 size={40} />
           </div>
-          <h1 className="text-3xl font-serif text-primary-dark mb-2">Painel <span className="italic">Privado</span></h1>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em]">Gestão Floresça Boutique</p>
+          <h1 className="text-3xl font-serif text-primary-dark mb-1">Painel <span className="italic">Privado</span></h1>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em]">Rita Vida Verde Flores</p>
         </div>
 
         {error && (
-          <div className="mb-8 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-red-600 text-xs font-medium leading-relaxed animate-in fade-in slide-in-from-top-2">
+          <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-red-600 text-xs font-medium leading-relaxed animate-in fade-in">
             <AlertCircle size={18} className="shrink-0 mt-0.5" />
             {error}
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4">E-mail de Acesso</label>
+        {successMsg && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-100 rounded-2xl flex items-start gap-3 text-green-700 text-xs font-medium leading-relaxed animate-in fade-in">
+            <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+            {successMsg}
+          </div>
+        )}
+
+        <form onSubmit={handleLogin} className="space-y-5">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4">E-mail</label>
             <div className="relative">
-              <Mail className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
-              <input 
+              <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={17} />
+              <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-14 pr-6 py-4 bg-[#fcf9f7] border border-transparent rounded-full outline-none focus:ring-4 focus:ring-primary/5 focus:bg-white focus:border-primary/20 transition-all text-sm font-medium"
-                placeholder="nome@exemplo.com"
+                className="w-full pl-12 pr-5 py-4 bg-[#f8faf7] border border-transparent rounded-full outline-none focus:ring-4 focus:ring-primary/10 focus:bg-white focus:border-primary/30 transition-all text-sm font-medium"
+                placeholder="admin@floricultura.com"
               />
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-4">Senha</label>
             <div className="relative">
-              <Lock className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
-              <input 
+              <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={17} />
+              <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-14 pr-6 py-4 bg-[#fcf9f7] border border-transparent rounded-full outline-none focus:ring-4 focus:ring-primary/5 focus:bg-white focus:border-primary/20 transition-all text-sm font-medium"
+                className="w-full pl-12 pr-5 py-4 bg-[#f8faf7] border border-transparent rounded-full outline-none focus:ring-4 focus:ring-primary/10 focus:bg-white focus:border-primary/30 transition-all text-sm font-medium"
                 placeholder="••••••••"
               />
             </div>
           </div>
 
-          <button 
+          <button
             type="submit"
             disabled={loading}
-            className="w-full py-5 bg-primary-dark text-white rounded-full font-bold text-xs uppercase tracking-[0.2em] hover:bg-black transition-all shadow-xl shadow-black/10 disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95"
+            className="w-full py-4 bg-primary text-white rounded-full font-bold text-xs uppercase tracking-[0.2em] hover:bg-primary-dark transition-all shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-3 active:scale-95 mt-2"
           >
             {loading ? <Loader2 className="animate-spin" size={18} /> : 'Acessar Dashboard'}
           </button>
         </form>
 
-        <div className="mt-12 pt-8 border-t border-gray-50 flex flex-col items-center">
-          <button 
+        <div className="mt-10 pt-7 border-t border-gray-50 flex flex-col items-center gap-3">
+          <button
             onClick={handleBootstrap}
             disabled={loading}
-            className="text-[10px] font-bold text-primary uppercase tracking-[0.2em] hover:text-primary-dark transition-colors"
+            className="text-[10px] font-bold text-primary uppercase tracking-[0.2em] hover:text-primary-dark transition-colors px-4 py-2 rounded-full hover:bg-green-50"
           >
-            {loading ? 'Processando...' : 'Configurar Primeiro Acesso'}
+            {loading ? 'Processando...' : '⚙️ Configurar Primeiro Acesso'}
           </button>
-          <p className="text-[9px] text-gray-300 font-bold uppercase tracking-widest mt-4">
-            admin@floricultura.com / admin123
+          <p className="text-[9px] text-gray-300 font-bold uppercase tracking-widest text-center">
+            Cria usuário admin com senha <span className="text-gray-400">admin123</span>
           </p>
         </div>
       </div>

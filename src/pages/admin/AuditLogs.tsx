@@ -39,7 +39,12 @@ export default function AuditLogs() {
     { 
       header: 'Data/Hora', 
       accessorKey: 'timestamp',
-      cell: (val: any) => val ? new Date(val.seconds * 1000).toLocaleString() : '-' 
+      cell: (val: any) => {
+        if (!val) return '-';
+        if (typeof val === 'string') return new Date(val).toLocaleString('pt-BR');
+        if (val.seconds) return new Date(val.seconds * 1000).toLocaleString('pt-BR');
+        return '-';
+      }
     },
   ];
 

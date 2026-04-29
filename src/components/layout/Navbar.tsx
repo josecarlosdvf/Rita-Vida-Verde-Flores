@@ -1,15 +1,17 @@
-import { Flower, Menu, X, Phone, ShoppingCart } from 'lucide-react';
+import { Flower, Menu, X, Phone, ShoppingCart, UserRound, LogOut } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { storeService } from '../../lib/storeService';
 import { Settings } from '../../types';
 import { useCart } from '../../hooks/useCart';
+import { customerAuth } from '../../lib/customerAuth';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [customer, setCustomer] = useState(customerAuth.getUser());
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -23,6 +25,16 @@ export default function Navbar() {
     return () => {
       window.removeEventListener('scroll', handleScroll);
       unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncCustomer = () => setCustomer(customerAuth.getUser());
+    window.addEventListener('storage', syncCustomer);
+    window.addEventListener('customer-auth-change', syncCustomer);
+    return () => {
+      window.removeEventListener('storage', syncCustomer);
+      window.removeEventListener('customer-auth-change', syncCustomer);
     };
   }, []);
 
@@ -74,6 +86,31 @@ export default function Navbar() {
             </nav>
 
             <div className="flex items-center gap-6">
+              {customer ? (
+                <button
+                  type="button"
+                  onClick={() => customerAuth.clearSession()}
+                  className={cn(
+                    'flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-colors',
+                    scrolled ? 'text-gray-600 hover:text-primary' : 'text-gray-700 md:text-white/80 md:hover:text-white'
+                  )}
+                >
+                  <LogOut size={16} />
+                  {customer.name.split(' ')[0]}
+                </button>
+              ) : (
+                <Link
+                  to="/conta"
+                  className={cn(
+                    'flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-colors',
+                    scrolled ? 'text-gray-600 hover:text-primary' : 'text-gray-700 md:text-white/80 md:hover:text-white'
+                  )}
+                >
+                  <UserRound size={16} />
+                  Entrar
+                </Link>
+              )}
+
               <Link to="/checkout" className={cn(
                 "relative transition-colors",
                 scrolled ? "text-gray-600 hover:text-primary" : "text-gray-700 md:text-white/80 md:hover:text-white"
@@ -101,6 +138,9 @@ export default function Navbar() {
 
           {/* Mobile Menu Button */}
           <div className="md:hidden flex items-center gap-4">
+            <Link to="/conta" className="relative p-2 text-gray-700 hover:text-primary transition-colors">
+              <UserRound size={22} />
+            </Link>
             <Link to="/checkout" className="relative p-2 text-gray-700 hover:text-primary transition-colors">
               <ShoppingCart size={24} />
               {totalItems > 0 && (
@@ -133,6 +173,13 @@ export default function Navbar() {
                 {link.name}
               </Link>
             ))}
+            <Link
+              to="/conta"
+              onClick={() => setIsOpen(false)}
+              className="block px-3 py-4 text-base font-medium text-gray-700 border-b border-gray-50 hover:bg-pink-50 hover:text-pink-500"
+            >
+              {customer ? `Minha conta: ${customer.name.split(' ')[0]}` : 'Entrar / Cadastrar'}
+            </Link>
             {settings?.whatsappNumber && (
               <div className="mt-4 px-3">
                 <a

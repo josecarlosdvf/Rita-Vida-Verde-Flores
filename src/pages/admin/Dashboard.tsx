@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Flower2, 
   ImageIcon, 
@@ -11,10 +12,11 @@ import {
 import { storeService } from '../../lib/storeService';
 import { Product, Banner, UserProfile } from '../../types';
 import DataTable from '../../components/DataTable';
-import { formatPrice } from '../../lib/utils';
+import { formatPrice, cn } from '../../lib/utils';
 import { motion } from 'motion/react';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -131,10 +133,9 @@ export default function Dashboard() {
           data={products.slice(0, 5)}
           columns={columns}
           isLoading={loading}
+          onRowClick={(item) => navigate(`/admin/produtos?edit=${item.id}`)}
         />
       </div>
     </div>
   );
 }
-
-import { cn } from '../../lib/utils';

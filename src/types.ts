@@ -21,8 +21,12 @@ export interface Product {
   imageUrl: string;
   active: boolean;
   slug: string;
+  category?: string;
+  featured?: boolean;
   rating?: number;
   reviewsCount?: number;
+  discountPercent?: number | null;
+  discountPrice?: number | null;
   createdAt: any;
   updatedAt: any;
 }
@@ -41,6 +45,7 @@ export interface Review {
 
 export interface CartItem extends Product {
   quantity: number;
+  observation?: string;
 }
 
 export enum OrderStatus {
@@ -57,6 +62,7 @@ export interface OrderItem {
   price: number;
   quantity: number;
   imageUrl: string;
+  observation?: string;
 }
 
 export interface Order {
@@ -91,6 +97,7 @@ export interface Settings {
   address?: string;
   googleMapsEmbed?: string;
   whatsappNumber: string;
+  includeOrderLinkInWhatsapp?: boolean;
   status: SystemStatus;
   maintenanceMessage?: string;
 }
@@ -115,4 +122,15 @@ export interface UserProfile {
   maxSessions: number;
   sessionPolicy: SessionPolicy;
   createdAt: any;
+}
+
+export interface CustomerProfile {
+  id: string;
+  name: string;
+  email?: string;
+  pictureUrl?: string;
+  provider: 'google' | 'facebook';
+  providerUserId: string;
+  createdAt: any;
+  updatedAt: any;
 }

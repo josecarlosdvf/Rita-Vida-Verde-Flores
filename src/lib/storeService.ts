@@ -1,131 +1,78 @@
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  getDoc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  serverTimestamp,
-  onSnapshot
-} from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { localAuth } from './localAuth';
 
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
+const API_BASE = '/api';
+
+function authHeaders(): Record<string, string> {
+  const token = localAuth.getToken();
+  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
 }
 
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: authHeaders(),
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || 'Erro na requisição');
   }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  return res.json();
 }
 
 export const storeService = {
-  async list<T>(collectionName: string) {
-    try {
-      const q = query(collection(db, collectionName));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as T));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, collectionName);
-    }
+  async list<T>(collectionName: string): Promise<T[]> {
+    return apiFetch<T[]>(`/${collectionName}`);
   },
 
-  async get<T>(collectionName: string, id: string) {
+  async get<T>(collectionName: string, id: string): Promise<T | null> {
     try {
-      const docRef = doc(db, collectionName, id);
-      const snapshot = await getDoc(docRef);
-      if (snapshot.exists()) {
-        return { id: snapshot.id, ...snapshot.data() } as T;
-      }
+      return await apiFetch<T>(`/${collectionName}/${id}`);
+    } catch {
       return null;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `${collectionName}/${id}`);
     }
   },
 
-  async create<T>(collectionName: string, data: any) {
-    try {
-      const docRef = await addDoc(collection(db, collectionName), {
-        ...data,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      return docRef.id;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, collectionName);
-    }
-  },
-
-  async update(collectionName: string, id: string, data: any) {
-    try {
-      const docRef = doc(db, collectionName, id);
-      await updateDoc(docRef, {
-        ...data,
-        updatedAt: serverTimestamp(),
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `${collectionName}/${id}`);
-    }
-  },
-
-  async delete(collectionName: string, id: string) {
-    try {
-      const docRef = doc(db, collectionName, id);
-      await deleteDoc(docRef);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `${collectionName}/${id}`);
-    }
-  },
-
-  subscribe<T>(collectionName: string, callback: (data: T[]) => void) {
-    const q = query(collection(db, collectionName));
-    return onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as T));
-      callback(items);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, collectionName);
+  async create<T>(collectionName: string, data: any): Promise<string> {
+    const item = await apiFetch<T & { id: string }>(`/${collectionName}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
-  }
+    return (item as any).id;
+  },
+
+  async update(collectionName: string, id: string, data: any): Promise<void> {
+    await apiFetch(`/${collectionName}/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async delete(collectionName: string, id: string): Promise<void> {
+    await apiFetch(`/${collectionName}/${id}`, { method: 'DELETE' });
+  },
+
+  /**
+   * Polling-based subscribe — simula o comportamento do onSnapshot do Firestore.
+   * Faz fetch imediato e depois a cada 5s enquanto o componente estiver montado.
+   */
+  subscribe<T>(collectionName: string, callback: (data: T[]) => void): () => void {
+    let active = true;
+
+    const fetchData = async () => {
+      try {
+        const data = await apiFetch<T[]>(`/${collectionName}`);
+        if (active) callback(data);
+      } catch (err) {
+        console.error(`[storeService] Erro ao buscar ${collectionName}:`, err);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  },
 };

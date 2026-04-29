@@ -11,7 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { auth } from '../lib/firebase';
+import { localAuth } from '../lib/localAuth';
 
 interface Column<T> {
   header: string;
@@ -289,7 +289,7 @@ export default function DataTable<T extends { id: string }>({
 
       {/* Print-only footer */}
       <div className="hidden print:flex fixed bottom-0 left-0 right-0 p-8 border-t border-gray-300 justify-between items-center text-[10px] text-gray-500 uppercase tracking-widest">
-        <span>Relatório gerado por: {auth.currentUser?.email}</span>
+        <span>Relatório gerado por: {localAuth.getUser()?.email}</span>
         <span>Data/Hora: {new Date().toLocaleString()}</span>
         <span>Floricultura Encanto - Backoffice</span>
       </div>
